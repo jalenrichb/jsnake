@@ -108,9 +108,112 @@ document.addEventListener("keydown", (e) => {
   }
 });
 
+// --- Auto-play AI ---
+
+function autoMove() {
+  const head = snake[0];
+  const directions = [
+    { x: 0, y: -1 },  // up
+    { x: 0, y: 1 },   // down
+    { x: -1, y: 0 },  // left
+    { x: 1, y: 0 },   // right
+  ];
+
+  // Filter out reverse direction and directions that cause immediate collision
+  const safeMoves = directions.filter((d) => {
+    // Can't reverse
+    if (d.x === -direction.x && d.y === -direction.y) return false;
+
+    // Check if this direction leads into the snake's body
+    let nx = head.x + d.x;
+    let ny = head.y + d.y;
+    // Wrap around
+    if (nx < 0) nx = tilesX - 1;
+    if (nx >= tilesX) nx = 0;
+    if (ny < 0) ny = tilesY - 1;
+    if (ny >= tilesY) ny = 0;
+
+    return !snake.some((seg) => seg.x === nx && seg.y === ny);
+  });
+
+  if (safeMoves.length === 0) return; // No safe move, will die next tick
+
+  // Score each safe move: prefer moves that reach the food AND have escape room
+  let bestMove = safeMoves[0];
+  let bestScore = -Infinity;
+
+  for (const move of safeMoves) {
+    let nx = head.x + move.x;
+    let ny = head.y + move.y;
+    if (nx < 0) nx = tilesX - 1;
+    if (nx >= tilesX) nx = 0;
+    if (ny < 0) ny = tilesY - 1;
+    if (ny >= tilesY) ny = 0;
+
+    const reachable = floodFill(nx, ny);
+    const dist = manhattan(nx, ny, food.x, food.y);
+
+    // If reachable area is too small, penalize heavily (avoid traps)
+    // Otherwise, prefer shorter distance to food
+    let moveScore;
+    if (reachable < snake.length) {
+      moveScore = -10000 + reachable; // Trapped — last resort
+    } else {
+      moveScore = -dist; // Safe — pick closest to food
+    }
+
+    if (moveScore > bestScore) {
+      bestScore = moveScore;
+      bestMove = move;
+    }
+  }
+
+  nextDirection = { x: bestMove.x, y: bestMove.y };
+}
+
+function manhattan(x1, y1, x2, y2) {
+  // Account for wrap-around: shortest distance in each axis
+  const dx = Math.min(Math.abs(x1 - x2), tilesX - Math.abs(x1 - x2));
+  const dy = Math.min(Math.abs(y1 - y2), tilesY - Math.abs(y1 - y2));
+  return dx + dy;
+}
+
+function floodFill(startX, startY) {
+  // Count how many open cells are reachable from (startX, startY)
+  // using BFS, treating snake body as walls
+  const visited = new Set();
+  const snakeSet = new Set(snake.map((s) => `${s.x},${s.y}`));
+  const queue = [`${startX},${startY}`];
+  visited.add(queue[0]);
+
+  // Cap the search — if we find enough open space, no need to keep going
+  const cap = snake.length + 10;
+
+  while (queue.length > 0 && visited.size < cap) {
+    const [cx, cy] = queue.shift().split(",").map(Number);
+    for (const [dx, dy] of [[0, -1], [0, 1], [-1, 0], [1, 0]]) {
+      let nx = cx + dx;
+      let ny = cy + dy;
+      if (nx < 0) nx = tilesX - 1;
+      if (nx >= tilesX) nx = 0;
+      if (ny < 0) ny = tilesY - 1;
+      if (ny >= tilesY) ny = 0;
+
+      const key = `${nx},${ny}`;
+      if (!visited.has(key) && !snakeSet.has(key)) {
+        visited.add(key);
+        queue.push(key);
+      }
+    }
+  }
+
+  return visited.size;
+}
+
 // --- Core game loop (one tick) ---
 
 function tick() {
+  if (!playerControlled) autoMove();
   direction = nextDirection;
 
   const head = snake[0];
@@ -124,6 +227,16 @@ function tick() {
 
   // Self collision is the only way to lose
   if (snake.some((seg) => seg.x === newHead.x && seg.y === newHead.y)) {
+    if (!playerControlled) {
+      // AI died — silently restart without showing game over
+      snake = [{ x: Math.floor(tilesX / 2), y: Math.floor(tilesY / 2) }];
+      direction = { x: 1, y: 0 };
+      nextDirection = { x: 1, y: 0 };
+      food = spawnRandomFood();
+      score = 0;
+      draw();
+      return;
+    }
     endGame();
     return;
   }
