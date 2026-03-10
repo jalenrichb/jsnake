@@ -268,10 +268,8 @@ function draw() {
     tileSize - 2
   );
 
-  // Draw snake — head is pure white, body fades to gray
+  // Draw snake
   snake.forEach((seg, i) => {
-    const brightness = Math.max(255 - i * 8, 40);
-    ctx.fillStyle = i === 0 ? "#fff" : `rgb(${brightness}, ${brightness}, ${brightness})`;
     ctx.fillRect(
       seg.x * tileSize + 1,
       seg.y * tileSize + 1,
